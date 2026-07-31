@@ -5,8 +5,8 @@ import {
 } from "../validation/matches.js";
 import { matches } from "../db/schema.js";
 import { db } from "../db/db.js";
-import { getMatchStatus } from "../utils/match-status.js";
-import { desc } from "drizzle-orm";
+import { getMatchStatus, syncMatchStatus } from "../utils/match-status.js";
+import { desc, eq } from "drizzle-orm";
 
 export const matchRouter = Router();
 
@@ -30,6 +30,14 @@ matchRouter.get("/", async (req, res) => {
       .from(matches)
       .orderBy(desc(matches.createdAt))
       .limit(limit);
+
+    await Promise.all(
+      data.map((match) =>
+        syncMatchStatus(match, (status) =>
+          db.update(matches).set({ status }).where(eq(matches.id, match.id)),
+        ),
+      ),
+    );
 
     res.json({ data });
   } catch (error) {
@@ -64,8 +72,7 @@ matchRouter.post("/", async (req, res) => {
 
     res.status(201).json({ data: event });
   } catch (e) {
-    res
-      .status(500)
-      .json({ error: "Failed to create match.", details: JSON.stringify(e) });
+    console.error("Failed to create match:", e);
+    return res.status(500).json({ error: "Failed to create match." });
   }
 });
