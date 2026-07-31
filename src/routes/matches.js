@@ -16,9 +16,9 @@ matchRouter.get("/", async (req, res) => {
   const parsed = listMatchesQuerySchema.safeParse(req.query);
 
   if (!parsed.success) {
-    res.status(400).json({
+    return res.status(400).json({
       error: "Invalid query.",
-      details: JSON.stringify(parsed.error),
+      details: parsed.error.flatten(),
     });
   }
 
