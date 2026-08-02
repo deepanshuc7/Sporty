@@ -1,8 +1,9 @@
 import "dotenv/config";
 import arcjet, {detectBot, shield, slidingWindow} from "@arcjet/node";
+import { isSpoofedBot } from "@arcjet/inspect";
 
 const arcjetKey = process.env.ARCJET_KEY;
-const arcjetMode = process.env.ARCJET_ENV === 'DRY RUN' ? 'DRY RUN' : 'LIVE';
+export const arcjetMode = process.env.ARCJET_ENV === 'DRY_RUN' ? 'DRY_RUN' : 'LIVE';
 
 if(!arcjetKey) throw new Error('ARCJET_KEY environment variable is missing');
 
@@ -31,12 +32,27 @@ export function securityMiddleware() {
         try {
             const decision = await httpArcjet.protect(req);
 
-            if(decision.isDenied()) {
-                if(decision.reason.isRateLimit()) {
-                    return res.status(429).json({error: 'Too many requests'});
+            if(decision.isErrored()) {
+                console.error('Arcjet decision error:', decision.reason.message);
+                // Arcjet decision errors fail open unless this application explicitly opts into fail-closed behavior.
+            } else {
+                const spoofedBot = decision.results.some(isSpoofedBot);
+
+                if(spoofedBot) {
+                    if(arcjetMode === 'LIVE') {
+                        return res.status(403).json({error: 'Forbidden.'});
+                    }
+
+                    console.warn('Arcjet detected a spoofed bot in DRY_RUN mode');
                 }
 
-                return res.status(403).json({error: 'Forbidden.'});
+                if(decision.isDenied() && !(spoofedBot && arcjetMode === 'DRY_RUN')) {
+                    if(decision.reason.isRateLimit()) {
+                        return res.status(429).json({error: 'Too many requests'});
+                    }
+
+                    return res.status(403).json({error: 'Forbidden.'});
+                }
             }
         } catch (error) {
             console.error('Arcjet middleware error', error);
