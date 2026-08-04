@@ -40,7 +40,7 @@ commentaryRouter.get("/", async (req, res) => {
       .select()
       .from(commentary)
       .where(eq(commentary.matchId, parsedParams.data.id))
-      .orderBy(desc(commentary.createdAt))
+      .orderBy(desc(commentary.createdAt), desc(commentary.id))
       .limit(limit);
 
     return res.json({ data });

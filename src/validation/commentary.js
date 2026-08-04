@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const listCommentaryQuerySchema = z.object({
-  limit: z.coerce.number().positive().max(100).optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
 });
 
 export const createCommentarySchema = z.object({

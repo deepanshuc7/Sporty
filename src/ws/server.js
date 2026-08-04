@@ -5,6 +5,18 @@ import { arcjetMode, wsArcjet } from "../arcjet.js";
 const matchSubscribers = new Map();
 const MAX_MATCH_ID = 2_147_483_647;
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 100;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+const webConcurrency = Number(process.env.WEB_CONCURRENCY ?? 1);
+if (!Number.isInteger(webConcurrency) || webConcurrency !== 1) {
+  throw new Error(
+    "WebSocket subscriptions require WEB_CONCURRENCY=1; configure a shared broker before running multiple processes.",
+  );
+}
+
+function isValidMatchId(matchId) {
+  return Number.isInteger(matchId) && matchId > 0 && matchId <= MAX_MATCH_ID;
+}
 
 function subscribe(matchId, socket) {
   if (!matchSubscribers.has(matchId)) {
@@ -87,12 +99,7 @@ function handleMessage(socket, data) {
     typeof message.type === "string" ? message.type.toLowerCase() : "";
 
   if(messageType === "subscribe") {
-    const validMatchId =
-      Number.isInteger(message.matchId) &&
-      message.matchId > 0 &&
-      message.matchId <= MAX_MATCH_ID;
-
-    if (!validMatchId) {
+    if (!isValidMatchId(message.matchId)) {
       sendJson(socket, { type: "error", message: "Invalid matchId" });
       return;
     }
@@ -115,7 +122,7 @@ function handleMessage(socket, data) {
     return;
   }
 
-  if(messageType === "unsubscribe" && Number.isInteger(message.matchId)) {
+  if(messageType === "unsubscribe" && isValidMatchId(message.matchId)) {
     unsubscribe(message.matchId, socket);
     socket.subscriptions.delete(message.matchId);
     sendJson(socket, { type: 'unsubscribed', matchId: message.matchId});
@@ -204,6 +211,26 @@ export function attachWebSocketServer(server) {
 
     socket.on("error", console.error);
   });
+
+  const heartbeatInterval = setInterval(() => {
+    for (const client of wss.clients) {
+      if (client.readyState !== WebSocket.OPEN) continue;
+
+      if (client.isAlive === false) {
+        cleanupSubscriptions(client);
+        client.terminate();
+        continue;
+      }
+
+      client.isAlive = false;
+      client.ping();
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+  heartbeatInterval.unref();
+
+  const clearHeartbeat = () => clearInterval(heartbeatInterval);
+  server.once("close", clearHeartbeat);
+  wss.once("close", clearHeartbeat);
 
   function broadcastMatchCreated(match) {
     broadcastToAll(wss, { type: "match_created", data: match });
