@@ -3,6 +3,8 @@ import { isSpoofedBot } from "@arcjet/inspect";
 import { arcjetMode, wsArcjet } from "../arcjet.js";
 
 const matchSubscribers = new Map();
+const MAX_MATCH_ID = 2_147_483_647;
+const MAX_SUBSCRIPTIONS_PER_SOCKET = 100;
 
 function subscribe(matchId, socket) {
   if (!matchSubscribers.has(matchId)) {
@@ -76,10 +78,37 @@ function handleMessage(socket, data) {
     return;
   }
 
+  if (message === null || typeof message !== "object" || Array.isArray(message)) {
+    sendJson(socket, { type: "error", message: "Message must be an object" });
+    return;
+  }
+
   const messageType =
     typeof message.type === "string" ? message.type.toLowerCase() : "";
 
-  if(messageType === "subscribe" && Number.isInteger(message.matchId)) {
+  if(messageType === "subscribe") {
+    const validMatchId =
+      Number.isInteger(message.matchId) &&
+      message.matchId > 0 &&
+      message.matchId <= MAX_MATCH_ID;
+
+    if (!validMatchId) {
+      sendJson(socket, { type: "error", message: "Invalid matchId" });
+      return;
+    }
+
+    const isNewSubscription = !socket.subscriptions.has(message.matchId);
+    if (
+      isNewSubscription &&
+      socket.subscriptions.size >= MAX_SUBSCRIPTIONS_PER_SOCKET
+    ) {
+      sendJson(socket, {
+        type: "error",
+        message: "Subscription limit reached",
+      });
+      return;
+    }
+
     subscribe(message.matchId, socket);
     socket.subscriptions.add(message.matchId);
     sendJson(socket, {type: 'subscribed', matchId: message.matchId});

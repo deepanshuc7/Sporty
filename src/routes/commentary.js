@@ -12,6 +12,10 @@ export const commentaryRouter = Router({ mergeParams: true });
 
 const MAX_LIMIT = 100;
 
+function isForeignKeyViolation(error) {
+  return error?.code === "23503" || error?.cause?.code === "23503";
+}
+
 commentaryRouter.get("/", async (req, res) => {
   const parsedParams = matchIdParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
@@ -78,6 +82,10 @@ commentaryRouter.post("/", async (req, res) => {
 
     return res.status(201).json({ data: event });
   } catch (error) {
+    if (isForeignKeyViolation(error)) {
+      return res.status(404).json({ error: "Match not found." });
+    }
+
     console.error("Failed to create commentary:", error);
     return res.status(500).json({ error: "Failed to create commentary." });
   }
